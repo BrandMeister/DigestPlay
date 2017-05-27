@@ -10,4 +10,5 @@ By default this tool uses DSD .amb format as an input source. You can switch to 
 AMBE mode 33 file may be produced by DVSI's usb3kcom.exe (supplied with DVSI USB-3000) or G4KLX's tool called wav2ambe (existing version should be patched to support mode 33)
 
 How to produce .ambe file using DVSI's usb3kcom.exe:
+
 `usb3kcom.exe -port COM3 460800 -enc -r 0x0431 0x0754 0x2400 0x0000 0x0000 0x6F48 sample.pcm sample.ambe`
