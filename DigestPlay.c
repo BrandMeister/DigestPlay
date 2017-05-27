@@ -17,6 +17,7 @@
 #define DSD_AMBE_CHUNK_SIZE   8
 
 #define LINEAR_FRAME_SIZE     7
+#define MODE33_FRAME_SIZE     9
 
 #define HELPER(value)         #value
 #define STRING(value)         HELPER(value)
@@ -41,6 +42,8 @@ int main(int argc, char* argv[])
   const char* location = NULL;
   const char* password = NULL;
 
+  size_t size = DSD_AMBE_CHUNK_SIZE;
+
   struct RewindSuperHeader header;
   memset(&header, 0, sizeof(struct RewindSuperHeader));
 
@@ -55,6 +58,8 @@ int main(int argc, char* argv[])
     { "source-id",        required_argument, NULL, 'u' },
     { "group-id",         required_argument, NULL, 'g' },
     { "talker-alias",     required_argument, NULL, 't' },
+    { "linear",           no_argument,       NULL, 'l' },
+    { "mode33",           no_argument,       NULL, 'm' },
     { NULL,               0,                 NULL, 0   }
   };
 
@@ -62,7 +67,7 @@ int main(int argc, char* argv[])
   int control = 0;
   int selection = 0;
 
-  while ((selection = getopt_long(argc, argv, "w:c:s:p:u:g:t:", options, NULL)) != EOF)
+  while ((selection = getopt_long(argc, argv, "w:c:s:p:u:g:t:lm", options, NULL)) != EOF)
     switch (selection)
     {
       case 'w':
@@ -105,6 +110,14 @@ int main(int argc, char* argv[])
       case 't':
         strncpy(header.sourceCall, optarg, REWIND_CALL_LENGTH);
         break;
+
+      case 'l':
+        size = LINEAR_FRAME_SIZE;
+        break;
+
+      case 'm':
+        size = MODE33_FRAME_SIZE;
+        break;
     }
 
   if (control != 0b11111)
@@ -119,6 +132,8 @@ int main(int argc, char* argv[])
       "    --source-id <ID to use as a source>\n"
       "    --group-id <TG ID>\n"
       "    --talker-alias <text to send as Talker Alias>\n"
+      "    --linear (use AMBE linear format instead of DSD)\n"
+      "    --mode33 (use AMBE mode 33 format instead of DSD)\n"
       "\n",
       argv[0]);
     return EXIT_FAILURE;
@@ -134,12 +149,15 @@ int main(int argc, char* argv[])
     return EXIT_FAILURE;
   }
 
-  // Check input data format
+  // Create input stream buffer
 
   char* buffer = (char*)alloca(BUFFER_SIZE);
 
-  if ((read(STDIN_FILENO, buffer, DSD_MAGIC_SIZE) != DSD_MAGIC_SIZE) ||
-      (memcmp(buffer, DSD_MAGIC_TEXT, DSD_MAGIC_SIZE) != 0))
+  // Check input data format if possible
+
+  if ((size == DSD_AMBE_CHUNK_SIZE) &&
+      ((read(STDIN_FILENO, buffer, DSD_MAGIC_SIZE) != DSD_MAGIC_SIZE) ||
+       (memcmp(buffer, DSD_MAGIC_TEXT, DSD_MAGIC_SIZE) != 0)))
   {
     printf("Error checking input data format\n");
     ReleaseRewindContext(context);
@@ -148,7 +166,7 @@ int main(int argc, char* argv[])
 
   // Connect to the server
 
-  int result = ConnectRewindClient(context, location, port, password, REWIND_OPTION_LINEAR_FRAME);
+  int result = ConnectRewindClient(context, location, port, password, 0);
 
   if (result < 0)
   {
@@ -186,18 +204,16 @@ int main(int argc, char* argv[])
   size_t count = 0;
 
   uint8_t* pointer;
-  uint8_t* limit = buffer + 3 * DSD_AMBE_CHUNK_SIZE;
+  uint8_t* limit = buffer + 3 * size;
 
   // Wait for timer event (60 milliseconds)
   while (read(handle, &mark, sizeof(uint64_t)) > 0)
   {
-    // Read AMBE chunks in DSD format
- 
     pointer = buffer;
     while ((pointer < limit) &&
-           (read(STDIN_FILENO, pointer, DSD_AMBE_CHUNK_SIZE) == DSD_AMBE_CHUNK_SIZE))
+           (read(STDIN_FILENO, pointer, size) == size))
     {
-      pointer += DSD_AMBE_CHUNK_SIZE;
+      pointer += size;
     }
 
     if (pointer < limit)
@@ -209,19 +225,25 @@ int main(int argc, char* argv[])
     printf("[> %d <]\r", count);
     fflush(stdout);
 
-    // Convert to linear format
+    switch (size)
+    {
+      case DSD_AMBE_CHUNK_SIZE:
+        // Convert DSD to linear format
+        buffer[0 * DSD_AMBE_CHUNK_SIZE + 7] <<= 7;
+        buffer[1 * DSD_AMBE_CHUNK_SIZE + 7] <<= 7;
+        buffer[2 * DSD_AMBE_CHUNK_SIZE + 7] <<= 7;
+        memmove(buffer + 0 * LINEAR_FRAME_SIZE, buffer + 0 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
+        memmove(buffer + 1 * LINEAR_FRAME_SIZE, buffer + 1 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
+        memmove(buffer + 2 * LINEAR_FRAME_SIZE, buffer + 2 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
 
-    buffer[0 * DSD_AMBE_CHUNK_SIZE + 7] <<= 7;
-    buffer[1 * DSD_AMBE_CHUNK_SIZE + 7] <<= 7;
-    buffer[2 * DSD_AMBE_CHUNK_SIZE + 7] <<= 7;
+      case LINEAR_FRAME_SIZE:
+        TransmitRewindData(context, REWIND_TYPE_DMR_AUDIO_FRAME, REWIND_FLAG_REAL_TIME_1, buffer, 3 * LINEAR_FRAME_SIZE);
+        break;
 
-    memmove(buffer + 0 * LINEAR_FRAME_SIZE, buffer + 0 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
-    memmove(buffer + 1 * LINEAR_FRAME_SIZE, buffer + 1 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
-    memmove(buffer + 2 * LINEAR_FRAME_SIZE, buffer + 2 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
-
-    // Transmit DMR audio frame
-
-    TransmitRewindData(context, REWIND_TYPE_DMR_AUDIO_FRAME, REWIND_FLAG_REAL_TIME_1, buffer, 3 * LINEAR_FRAME_SIZE);
+      case MODE33_FRAME_SIZE:
+        TransmitRewindData(context, REWIND_TYPE_DMR_AUDIO_FRAME, REWIND_FLAG_REAL_TIME_1, buffer, 3 * MODE33_FRAME_SIZE);
+        break;
+    }
 
     if ((count % 83) == 0)
     {
@@ -237,6 +259,7 @@ int main(int argc, char* argv[])
 
   // Clean up
 
+  close(handle);
   TransmitRewindCloae(context);
   ReleaseRewindContext(context);
 
