@@ -206,7 +206,7 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
   struct RewindData* buffer = (struct RewindData*)alloca(BUFFER_SIZE);
   ssize_t length;
 
-  size_t attempt = CONNECTION_ATTEMPT_COUNT;
+  size_t attempt = 0;
   time_t threshold = time(NULL) + CONNECTION_CONNECT_TIMEOUT;
 
   uint8_t* digest = (uint8_t*)alloca(SHA256_DIGEST_LENGTH);
@@ -240,7 +240,7 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
 
   // Do login procedure
 
-  while ((attempt > 0) && (threshold > time(NULL)))
+  while (threshold > time(NULL))
   {
     TransmitRewindData(context, REWIND_TYPE_KEEP_ALIVE, REWIND_FLAG_NONE, context->data, context->length);
     length = ReceiveRewindData(context, buffer, BUFFER_SIZE);
@@ -254,31 +254,35 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
     if (length < 0)
       return length;
 
-    switch (buffer->type)
+    switch (le16toh(buffer->type))
     {
-      case htole16(REWIND_TYPE_CHALLENGE):
-        length -= sizeof(struct RewindData);
-        length += sprintf(buffer->data + length, "%s", password);
-        SHA256(buffer->data, length, digest);
+      case REWIND_TYPE_CHALLENGE:
+        if (attempt < CONNECTION_ATTEMPT_COUNT)
+        {
+          length -= sizeof(struct RewindData);
+          length += sprintf(buffer->data + length, "%s", password);
+          SHA256(buffer->data, length, digest);
 
-        TransmitRewindData(context, REWIND_TYPE_AUTHENTICATION, REWIND_FLAG_NONE, digest, SHA256_DIGEST_LENGTH);
-        break;
+          TransmitRewindData(context, REWIND_TYPE_AUTHENTICATION, REWIND_FLAG_NONE, digest, SHA256_DIGEST_LENGTH);
 
-      case htole16(REWIND_TYPE_KEEP_ALIVE):
+          attempt ++;
+          continue;
+        }
+        return CLIENT_ERROR_ATTEMPT_EXCEEDED;
+
+      case REWIND_TYPE_KEEP_ALIVE:
         if (options != 0)
         {
           data.options = htole32(options);
 
           TransmitRewindData(context, REWIND_TYPE_CONFIGURATION, REWIND_FLAG_NONE, &data, sizeof(struct RewindConfigurationData));
-          break;
+          continue;
         }
 
-      case htole16(REWIND_TYPE_CONFIGURATION):
+      case REWIND_TYPE_CONFIGURATION:
         return CLIENT_ERROR_SUCCESS;
     }
-
-    attempt --;
   }
 
-  return CLIENT_ERROR_ATTEMPT_EXCEEDED;
+  return CLIENT_ERROR_RESPONSE_TIMEOUT;
 }
