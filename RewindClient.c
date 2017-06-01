@@ -268,7 +268,7 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
           attempt ++;
           continue;
         }
-        return CLIENT_ERROR_ATTEMPT_EXCEEDED;
+        return CLIENT_ERROR_WRONG_PASSWORD;
 
       case REWIND_TYPE_KEEP_ALIVE:
         if (options != 0)

@@ -23,7 +23,7 @@ extern "C"
 #define CLIENT_ERROR_WRONG_ADDRESS     -2
 #define CLIENT_ERROR_WRONG_DATA        -3
 #define CLIENT_ERROR_DNS_RESOLVE       -4
-#define CLIENT_ERROR_ATTEMPT_EXCEEDED  -5
+#define CLIENT_ERROR_WRONG_PASSWORD    -5
 #define CLIENT_ERROR_RESPONSE_TIMEOUT  -6
 
 struct RewindContext
