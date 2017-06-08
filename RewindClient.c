@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/utsname.h>
 
@@ -52,9 +53,9 @@
 
 #define BUFFER_SIZE    256
 
-#define CONNECTION_ATTEMPT_COUNT    5
-#define CONNECTION_RECEIVE_TIMEOUT  2
-#define CONNECTION_CONNECT_TIMEOUT  5
+#define ATTEMPT_COUNT    3
+#define RECEIVE_TIMEOUT  2
+#define CONNECT_TIMEOUT  5
 
 static int CompareAddresses(struct sockaddr* value1, struct sockaddr_in6* value2)
 {
@@ -91,12 +92,12 @@ struct RewindContext* CreateRewindContext(uint32_t number, const char* verion)
   {
     // Create socket
 
-    address.sin6_family = AF_INET6;
-    address.sin6_addr = in6addr_any;
-    address.sin6_port = 0;
+    address.sin6_family   = AF_INET6;
+    address.sin6_addr     = in6addr_any;
+    address.sin6_port     = 0;
     address.sin6_scope_id = 0;
 
-    interval.tv_sec  = 2;
+    interval.tv_sec  = RECEIVE_TIMEOUT;
     interval.tv_usec = 0;
 
     context->handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP);
@@ -207,7 +208,8 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
   ssize_t length;
 
   size_t attempt = 0;
-  time_t threshold = time(NULL) + CONNECTION_CONNECT_TIMEOUT;
+  struct timeval now;
+  struct timeval threshold;
 
   uint8_t* digest = (uint8_t*)alloca(SHA256_DIGEST_LENGTH);
 
@@ -233,17 +235,20 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
 #endif
 
   if (getaddrinfo(location, port, &hints, &context->address) != 0)
-  {
-    // Could not resolve address
     return CLIENT_ERROR_DNS_RESOLVE;
-  }
 
   // Do login procedure
 
-  while (threshold > time(NULL))
+  gettimeofday(&now, NULL);
+  threshold.tv_sec  = now.tv_sec + CONNECT_TIMEOUT;
+  threshold.tv_usec = now.tv_usec; 
+
+  while (timercmp(&now, &threshold, <))
   {
     TransmitRewindData(context, REWIND_TYPE_KEEP_ALIVE, REWIND_FLAG_NONE, context->data, context->length);
     length = ReceiveRewindData(context, buffer, BUFFER_SIZE);
+
+    gettimeofday(&now, NULL);
 
     if ((length == CLIENT_ERROR_WRONG_ADDRESS) ||
         (length == CLIENT_ERROR_SOCKET_IO) &&
@@ -257,14 +262,12 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
     switch (le16toh(buffer->type))
     {
       case REWIND_TYPE_CHALLENGE:
-        if (attempt < CONNECTION_ATTEMPT_COUNT)
+        if (attempt < ATTEMPT_COUNT)
         {
           length -= sizeof(struct RewindData);
           length += sprintf(buffer->data + length, "%s", password);
           SHA256(buffer->data, length, digest);
-
           TransmitRewindData(context, REWIND_TYPE_AUTHENTICATION, REWIND_FLAG_NONE, digest, SHA256_DIGEST_LENGTH);
-
           attempt ++;
           continue;
         }
@@ -274,13 +277,93 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
         if (options != 0)
         {
           data.options = htole32(options);
-
           TransmitRewindData(context, REWIND_TYPE_CONFIGURATION, REWIND_FLAG_NONE, &data, sizeof(struct RewindConfigurationData));
           continue;
         }
 
       case REWIND_TYPE_CONFIGURATION:
         return CLIENT_ERROR_SUCCESS;
+    }
+  }
+
+  return CLIENT_ERROR_RESPONSE_TIMEOUT;
+}
+
+int WaitForRewindSessionEnd(struct RewindContext* context, struct RewindSessionPollData* request, time_t interval1, time_t interval2)
+{
+  struct RewindData* buffer = (struct RewindData*)alloca(BUFFER_SIZE);
+  struct RewindSessionPollData* response = (struct RewindSessionPollData*)buffer->data;
+  ssize_t length;
+
+  uint32_t state = 0b00;
+  struct timeval now;
+  struct timeval threshold1;
+  struct timeval threshold2;
+
+  if (interval1 < RECEIVE_TIMEOUT)
+    interval1 = RECEIVE_TIMEOUT;
+
+  gettimeofday(&now, NULL);
+
+  threshold1.tv_sec  = now.tv_sec + interval1 + interval2;
+  threshold1.tv_usec = now.tv_usec; 
+
+  threshold2.tv_sec  = 0;
+  threshold2.tv_usec = 0;
+
+  while (timercmp(&now, &threshold1, <))
+  {
+    TransmitRewindData(context, REWIND_TYPE_KEEP_ALIVE, REWIND_FLAG_NONE, context->data, context->length);
+    TransmitRewindData(context, REWIND_TYPE_SESSION_POLL, REWIND_FLAG_NONE, request, sizeof(struct RewindSessionPollData));
+
+    length = ReceiveRewindData(context, buffer, BUFFER_SIZE);
+
+    gettimeofday(&now, NULL);
+
+    if ((length == CLIENT_ERROR_WRONG_ADDRESS) ||
+        (length == CLIENT_ERROR_SOCKET_IO) &&
+        ((errno == EWOULDBLOCK) ||
+         (errno == EAGAIN)))
+      continue;
+
+    if (length < 0)
+      return length;
+
+    switch (le16toh(buffer->type))
+    {
+      case REWIND_TYPE_KEEP_ALIVE:
+        state |= 0b01;
+        break;
+
+      case REWIND_TYPE_SESSION_POLL:
+        if ((response->state == 0) &&
+            (threshold2.tv_sec == 0))
+        {
+          threshold2.tv_sec  = now.tv_sec + interval2;
+          threshold2.tv_usec = now.tv_usec;
+        }
+        if ((response->state != 0) &&
+            (threshold2.tv_sec != 0))
+        {
+          threshold2.tv_sec  = 0;
+          threshold2.tv_usec = 0;
+        }
+        if ((threshold2.tv_sec != 0) &&
+            (timercmp(&now, &threshold2, >)))
+        {
+          // No active sessions during <interval2>
+          return CLIENT_ERROR_SUCCESS;
+        }
+        state |= 0b10;
+        break;
+    }
+
+    if (state == 0b11)
+    {
+      // Got REWIND_TYPE_KEEP_ALIVE and REWIND_TYPE_SESSION_POLL
+      // Wait for 2 seconds before the next attempt
+      sleep(RECEIVE_TIMEOUT);
+      state = 0b00;
     }
   }
 

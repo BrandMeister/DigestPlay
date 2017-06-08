@@ -47,6 +47,10 @@ int main(int argc, char* argv[])
   struct RewindSuperHeader header;
   memset(&header, 0, sizeof(struct RewindSuperHeader));
 
+  time_t interval1 = 0;
+  time_t interval2 = 0;
+  struct RewindSessionPollData poll;
+
   // Start up
 
   struct option options[] =
@@ -58,6 +62,8 @@ int main(int argc, char* argv[])
     { "source-id",        required_argument, NULL, 'u' },
     { "group-id",         required_argument, NULL, 'g' },
     { "talker-alias",     required_argument, NULL, 't' },
+    { "wait",             required_argument, NULL, 'o' },
+    { "pause",            required_argument, NULL, 'e' },
     { "linear",           no_argument,       NULL, 'l' },
     { "mode33",           no_argument,       NULL, 'm' },
     { NULL,               0,                 NULL, 0   }
@@ -67,7 +73,7 @@ int main(int argc, char* argv[])
   int control = 0;
   int selection = 0;
 
-  while ((selection = getopt_long(argc, argv, "w:c:s:p:u:g:t:lm", options, NULL)) != EOF)
+  while ((selection = getopt_long(argc, argv, "w:c:s:p:u:g:t:o:e:lm", options, NULL)) != EOF)
     switch (selection)
     {
       case 'w':
@@ -103,12 +109,21 @@ int main(int argc, char* argv[])
         if (value > 0)
         {
           header.destinationID = htole32(value);
+          poll.number = header.destinationID;
           control |= 0b10000;
         }
         break;
 
       case 't':
         strncpy(header.sourceCall, optarg, REWIND_CALL_LENGTH);
+        break;
+
+      case 'o':
+        interval1 = strtol(optarg, NULL, 10);
+        break;
+
+      case 'e':
+        interval2 = strtol(optarg, NULL, 10);
         break;
 
       case 'l':
@@ -134,6 +149,8 @@ int main(int argc, char* argv[])
       "    --talker-alias <text to send as Talker Alias>\n"
       "    --linear (use AMBE linear format instead of DSD)\n"
       "    --mode33 (use AMBE mode 33 format instead of DSD)\n"
+      "    --wait <interval in seconds>\n"
+      "    --pause <interval in seconds>\n"
       "\n",
       argv[0]);
     return EXIT_FAILURE;
@@ -173,6 +190,29 @@ int main(int argc, char* argv[])
     printf("Cannot connect to the server (%i)\n", result);
     ReleaseRewindContext(context);
     return EXIT_FAILURE;
+  }
+
+  // Wait for the end of existing call session if required
+
+  if ((interval1 > 0) ||
+      (interval2 > 0))
+  {
+    poll.type = htole32(TREE_SESSION_BY_TARGET);
+    poll.flag = htole32(SESSION_TYPE_FLAG_GROUP);
+
+    printf("Waiting...\r");
+    fflush(stdout);
+
+    result = WaitForRewindSessionEnd(context, &poll, interval1, interval2);
+
+    if (result != CLIENT_ERROR_SUCCESS)
+    {
+      printf("Waiting limit exceeded (%i)\n", result);
+      TransmitRewindCloae(context);
+
+      ReleaseRewindContext(context);
+      return EXIT_FAILURE;
+    }
   }
 
   // Initialize timer handle

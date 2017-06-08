@@ -47,6 +47,7 @@ extern "C"
 #define REWIND_TYPE_CONFIGURATION      (REWIND_CLASS_APPLICATION + 0x00)
 #define REWIND_TYPE_SUBSCRIPTION       (REWIND_CLASS_APPLICATION + 0x01)
 #define REWIND_TYPE_CANCELLING         (REWIND_CLASS_APPLICATION + 0x02)
+#define REWIND_TYPE_SESSION_POLL       (REWIND_CLASS_APPLICATION + 0x03)
 #define REWIND_TYPE_DMR_DATA_BASE      (REWIND_CLASS_APPLICATION + 0x10)
 #define REWIND_TYPE_DMR_AUDIO_FRAME    (REWIND_CLASS_APPLICATION + 0x20)
 #define REWIND_TYPE_DMR_EMBEDDED_DATA  (REWIND_CLASS_APPLICATION + 0x27)
@@ -101,6 +102,14 @@ struct RewindSubscriptionData
 {
   uint32_t type;    // SESSION_TYPE_*
   uint32_t number;  // Destination ID
+};
+
+struct RewindSessionPollData
+{
+  uint32_t type;    // TREE_SESSION_*
+  uint32_t flag;    // SESSION_FLAG_*
+  uint32_t number;  // ID
+  uint32_t state;   // 
 };
 
 struct RewindSuperHeader

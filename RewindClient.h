@@ -15,8 +15,13 @@ extern "C"
 {
 #endif
 
+#define SESSION_TYPE_FLAG_GROUP       (1 << 1)
+
 #define SESSION_TYPE_PRIVATE_VOICE    5
 #define SESSION_TYPE_GROUP_VOICE      7
+
+#define TREE_SESSION_BY_SOURCE        8
+#define TREE_SESSION_BY_TARGET        9
 
 #define CLIENT_ERROR_SUCCESS           0
 #define CLIENT_ERROR_SOCKET_IO         -1
@@ -44,6 +49,7 @@ void TransmitRewindData(struct RewindContext* context, uint16_t type, uint16_t f
 ssize_t ReceiveRewindData(struct RewindContext* context, struct RewindData* buffer, ssize_t length);
 
 int ConnectRewindClient(struct RewindContext* context, const char* location, const char* port, const char* password, uint32_t options);
+int WaitForRewindSessionEnd(struct RewindContext* context, struct RewindSessionPollData* request, time_t interval1, time_t interval2);
 
 #define TransmitRewindKeepAlive(context)   TransmitRewindData(context, REWIND_TYPE_KEEP_ALIVE, REWIND_FLAG_NONE, context->data, context->length);
 #define TransmitRewindCloae(context)       TransmitRewindData(context, REWIND_TYPE_CLOSE,      REWIND_FLAG_NONE, NULL,          0              );
