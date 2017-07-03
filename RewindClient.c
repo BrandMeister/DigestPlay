@@ -226,11 +226,11 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
   memset(&hints, 0, sizeof(hints));
   hints.ai_socktype = SOCK_DGRAM;
 #ifdef __linux__
-  hints.ai_flags = AI_ADDRCONFIG;
+  hints.ai_flags  = AI_ADDRCONFIG;
   hints.ai_family = AF_UNSPEC;
 #endif
 #ifdef __MACH__
-  hints.ai_flags = AI_V4MAPPED;
+  hints.ai_flags  = AI_V4MAPPED;
   hints.ai_family = AF_INET6;
 #endif
 
@@ -336,13 +336,13 @@ int WaitForRewindSessionEnd(struct RewindContext* context, struct RewindSessionP
         break;
 
       case REWIND_TYPE_SESSION_POLL:
-        if ((response->state == 0) &&
+        if ((response->state   == 0) &&
             (threshold2.tv_sec == 0))
         {
           threshold2.tv_sec  = now.tv_sec + interval2;
           threshold2.tv_usec = now.tv_usec;
         }
-        if ((response->state != 0) &&
+        if ((response->state   != 0) &&
             (threshold2.tv_sec != 0))
         {
           threshold2.tv_sec  = 0;

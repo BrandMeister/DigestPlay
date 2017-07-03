@@ -52,7 +52,7 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
 int WaitForRewindSessionEnd(struct RewindContext* context, struct RewindSessionPollData* request, time_t interval1, time_t interval2);
 
 #define TransmitRewindKeepAlive(context)   TransmitRewindData(context, REWIND_TYPE_KEEP_ALIVE, REWIND_FLAG_NONE, context->data, context->length);
-#define TransmitRewindCloae(context)       TransmitRewindData(context, REWIND_TYPE_CLOSE,      REWIND_FLAG_NONE, NULL,          0              );
+#define TransmitRewindClose(context)       TransmitRewindData(context, REWIND_TYPE_CLOSE,      REWIND_FLAG_NONE, NULL,          0              );
 
 #ifdef __cplusplus
 }

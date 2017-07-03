@@ -208,7 +208,7 @@ int main(int argc, char* argv[])
     if (result != CLIENT_ERROR_SUCCESS)
     {
       printf("Waiting limit exceeded (%i)\n", result);
-      TransmitRewindCloae(context);
+      TransmitRewindClose(context);
 
       ReleaseRewindContext(context);
       return EXIT_FAILURE;
@@ -300,7 +300,7 @@ int main(int argc, char* argv[])
   // Clean up
 
   close(handle);
-  TransmitRewindCloae(context);
+  TransmitRewindClose(context);
   ReleaseRewindContext(context);
 
   printf("Done\n");
