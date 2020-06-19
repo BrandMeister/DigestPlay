@@ -125,7 +125,7 @@ struct RewindContext* CreateRewindContext(uint32_t number, const char* verion)
       name.machine);
 
     context->data->number = htole32(number);
-    context->data->service = REWIND_SERVICE_SIMPLE_APPLICATION;
+    context->data->service = REWIND_SERVICE_OPEN_TERMINAL;
   }
 
   return context;
@@ -213,7 +213,7 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
 
   uint8_t* digest = (uint8_t*)alloca(SHA256_DIGEST_LENGTH);
 
-  struct RewindConfigurationData data;
+  struct RewindSubscriptionData data;
 
   // Resolve server IP address
 
@@ -274,14 +274,12 @@ int ConnectRewindClient(struct RewindContext* context, const char* location, con
         return CLIENT_ERROR_WRONG_PASSWORD;
 
       case REWIND_TYPE_KEEP_ALIVE:
-        if (options != 0)
-        {
-          data.options = htole32(options);
-          TransmitRewindData(context, REWIND_TYPE_CONFIGURATION, REWIND_FLAG_NONE, &data, sizeof(struct RewindConfigurationData));
-          continue;
-        }
+        data.type = htole32(SESSION_TYPE_GROUP_VOICE);
+        data.number = htole32(91);
+        TransmitRewindData(context, REWIND_TYPE_SUBSCRIPTION, REWIND_FLAG_NONE, &data, sizeof(struct RewindSubscriptionData));
+        continue;
 
-      case REWIND_TYPE_CONFIGURATION:
+      case REWIND_TYPE_SUBSCRIPTION:
         return CLIENT_ERROR_SUCCESS;
     }
   }

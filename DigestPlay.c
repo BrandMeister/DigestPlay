@@ -27,6 +27,20 @@
 #define BUFFER_SIZE           64
 #define CLIENT_NAME           "DigestPlay " STRING(VERSION) " " BUILD
 
+typedef union __attribute__((packed)) {
+  struct {
+        uint8_t flco            : 6;
+        uint8_t reserved        : 1;
+        uint8_t protect         : 1;
+        uint8_t fid;
+        uint8_t service_options;
+        uint8_t destinationID[3];
+        uint8_t sourceID[3];
+        uint8_t crc[3];
+      } fields;
+  uint8_t bytes[12];
+} LC;
+
 int main(int argc, char* argv[])
 {
   printf("\n");
@@ -38,14 +52,14 @@ int main(int argc, char* argv[])
   // Main variables
 
   uint32_t number = 0;
-  const char* port = "54005";
+  const char* port = "54006";
   const char* location = NULL;
   const char* password = NULL;
 
   size_t size = DSD_AMBE_CHUNK_SIZE;
 
-  struct RewindSuperHeader header;
-  memset(&header, 0, sizeof(struct RewindSuperHeader));
+  LC header;
+  memset(&header, 0, 12);
 
   time_t interval1 = 0;
   time_t interval2 = 0;
@@ -64,7 +78,6 @@ int main(int argc, char* argv[])
     { "talker-alias",     required_argument, NULL, 't' },
     { "wait",             required_argument, NULL, 'o' },
     { "pause",            required_argument, NULL, 'e' },
-    { "linear",           no_argument,       NULL, 'l' },
     { "mode33",           no_argument,       NULL, 'm' },
     { NULL,               0,                 NULL, 0   }
   };
@@ -73,7 +86,7 @@ int main(int argc, char* argv[])
   int control = 0;
   int selection = 0;
 
-  while ((selection = getopt_long(argc, argv, "w:c:s:p:u:g:t:o:e:lm", options, NULL)) != EOF)
+  while ((selection = getopt_long(argc, argv, "w:c:s:p:u:g:t:o:e:m", options, NULL)) != EOF)
     switch (selection)
     {
       case 'w':
@@ -99,7 +112,9 @@ int main(int argc, char* argv[])
         value = strtol(optarg, NULL, 10);
         if (value > 0)
         {
-          header.sourceID = htole32(value);
+          header.fields.sourceID[0] = (uint32_t)(value >> 16);
+          header.fields.sourceID[1] = (uint32_t)(value >> 8);
+          header.fields.sourceID[2] = (uint32_t)(value >> 0);
           control |= 0b01000;
         }
         break;
@@ -108,14 +123,12 @@ int main(int argc, char* argv[])
         value = strtol(optarg, NULL, 10);
         if (value > 0)
         {
-          header.destinationID = htole32(value);
-          poll.number = header.destinationID;
+          header.fields.destinationID[0] = (uint32_t)(value >> 16);
+          header.fields.destinationID[1] = (uint32_t)(value >> 8);
+          header.fields.destinationID[2] = (uint32_t)(value >> 0);
+          poll.number = htole32(value);
           control |= 0b10000;
         }
-        break;
-
-      case 't':
-        strncpy(header.sourceCall, optarg, REWIND_CALL_LENGTH);
         break;
 
       case 'o':
@@ -124,10 +137,6 @@ int main(int argc, char* argv[])
 
       case 'e':
         interval2 = strtol(optarg, NULL, 10);
-        break;
-
-      case 'l':
-        size = LINEAR_FRAME_SIZE;
         break;
 
       case 'm':
@@ -232,12 +241,9 @@ int main(int argc, char* argv[])
   // Transmit voice header
 
   printf("Playing...\n");
-
-  header.type = htole32(SESSION_TYPE_GROUP_VOICE);
-  TransmitRewindData(context, REWIND_TYPE_SUPER_HEADER, REWIND_FLAG_REAL_TIME_1, &header, sizeof(struct RewindSuperHeader));
-  TransmitRewindData(context, REWIND_TYPE_SUPER_HEADER, REWIND_FLAG_REAL_TIME_1, &header, sizeof(struct RewindSuperHeader));
-  TransmitRewindData(context, REWIND_TYPE_SUPER_HEADER, REWIND_FLAG_REAL_TIME_1, &header, sizeof(struct RewindSuperHeader));
- 
+  TransmitRewindData(context, REWIND_TYPE_DMR_DATA_BASE + 1, REWIND_FLAG_REAL_TIME_1, &header, 12);
+  TransmitRewindData(context, REWIND_TYPE_DMR_DATA_BASE + 1, REWIND_FLAG_REAL_TIME_1, &header, 12);
+  TransmitRewindData(context, REWIND_TYPE_DMR_DATA_BASE + 1, REWIND_FLAG_REAL_TIME_1, &header, 12);
   // Main loop
 
   uint64_t mark;
@@ -275,10 +281,6 @@ int main(int argc, char* argv[])
         memmove(buffer + 0 * LINEAR_FRAME_SIZE, buffer + 0 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
         memmove(buffer + 1 * LINEAR_FRAME_SIZE, buffer + 1 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
         memmove(buffer + 2 * LINEAR_FRAME_SIZE, buffer + 2 * DSD_AMBE_CHUNK_SIZE + 1, LINEAR_FRAME_SIZE);
-
-      case LINEAR_FRAME_SIZE:
-        TransmitRewindData(context, REWIND_TYPE_DMR_AUDIO_FRAME, REWIND_FLAG_REAL_TIME_1, buffer, 3 * LINEAR_FRAME_SIZE);
-        break;
 
       case MODE33_FRAME_SIZE:
         TransmitRewindData(context, REWIND_TYPE_DMR_AUDIO_FRAME, REWIND_FLAG_REAL_TIME_1, buffer, 3 * MODE33_FRAME_SIZE);
